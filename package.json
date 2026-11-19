@@ -1,0 +1,14 @@
+{
+  "name": "coagent-room",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local-first, MIT open-source multiplayer workspace for humans and BYO coding agents.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@12.21.0",
+  "scripts": {
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "build": "pnpm -r build"
+  }
+}
