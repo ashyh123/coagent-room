@@ -7,8 +7,10 @@
   "type": "module",
   "packageManager": "pnpm@12.21.0",
   "scripts": {
+    "ci:hygiene": "node scripts/ci/check-hygiene.mjs",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
-    "build": "pnpm -r build"
+    "build": "pnpm -r build",
+    "verify": "pnpm ci:hygiene && pnpm typecheck && pnpm test"
   }
 }
