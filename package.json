@@ -11,6 +11,6 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "build": "pnpm -r build",
-    "verify": "pnpm ci:hygiene && pnpm typecheck && pnpm test"
+    "verify": "pnpm ci:hygiene && pnpm build && pnpm typecheck && pnpm test"
   }
 }
