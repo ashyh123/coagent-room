@@ -14,6 +14,8 @@ import {
   reduceRoomEvents,
   RoomEvent,
   RoomState,
+  TopicAnchor,
+  TopicAnchorSchema,
 } from "@coagent/protocol";
 import { RoomDatabase, RoomRecord, SessionRecord } from "./db.js";
 
@@ -194,12 +196,34 @@ export class RoomService {
     }
   }
 
+  createTopic(actorId: string, title: string, anchor?: TopicAnchor): RoomEvent {
+    const member = this.state.members[actorId];
+    if (!member) {
+      throw new RoomError("UNAUTHORIZED", "Unknown room member", 401);
+    }
+    if (member.kind === "agent" && this.state.stoppedAgentIds.includes(actorId)) {
+      throw new RoomError("AGENT_STOPPED", "Agent has been emergency-stopped by a collaborator", 403);
+    }
+    const cleanTitle = title.trim();
+    if (!cleanTitle || cleanTitle.length > 120) {
+      throw new RoomError("INVALID_TOPIC", "Topic title must be 1-120 characters", 400);
+    }
+    const parsedAnchor = anchor === undefined ? undefined : TopicAnchorSchema.parse(anchor);
+    return this.emit(actorId, {
+      type: "topic_created",
+      topicId: randomId("topic", 6),
+      title: cleanTitle,
+      ...(parsedAnchor ? { anchor: parsedAnchor } : {}),
+    });
+  }
+
   postMessage(
     actorId: string,
     text: string,
     mentions: string[] = [],
     refCardId?: string,
     meta?: MessageMeta,
+    topicId?: string,
   ): RoomEvent {
     const member = this.state.members[actorId];
     if (!member) {
@@ -207,6 +231,9 @@ export class RoomService {
     }
     if (member.kind === "agent" && this.state.stoppedAgentIds.includes(actorId)) {
       throw new RoomError("AGENT_STOPPED", "Agent has been emergency-stopped by a collaborator", 403);
+    }
+    if (topicId !== undefined && !this.state.topics[topicId]) {
+      throw new RoomError("NOT_FOUND", `Topic ${topicId} not found`, 404);
     }
     const trimmed = text.trim();
     if (!trimmed) {
@@ -218,6 +245,7 @@ export class RoomService {
       text: trimmed,
       mentions,
       refCardId,
+      ...(topicId ? { topicId } : {}),
       ...(meta ? { meta } : {}),
     });
   }

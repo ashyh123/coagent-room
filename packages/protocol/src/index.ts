@@ -5,3 +5,4 @@ export * from "./cards.js";
 export * from "./events.js";
 export * from "./mcp-tools.js";
 export * from "./reducer.js";
+export * from "./inbox.js";

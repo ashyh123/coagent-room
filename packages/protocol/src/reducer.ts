@@ -1,7 +1,7 @@
 import { Card } from "./cards.js";
 import { MessageMeta, RoomEvent } from "./events.js";
 import { ActiveClaim } from "./locks.js";
-import { Member, Output, WorkStep } from "./types.js";
+import { Member, Output, Topic, WorkStep } from "./types.js";
 
 export interface ChatMessage {
   id: string;
@@ -9,6 +9,7 @@ export interface ChatMessage {
   text: string;
   mentions: string[];
   refCardId?: string;
+  topicId?: string;
   meta?: MessageMeta;
   createdAt: string;
   seq: number;
@@ -21,6 +22,7 @@ export interface RoomState {
   lastSeq: number;
   members: Record<string, Member>;
   messages: ChatMessage[];
+  topics: Record<string, Topic>;
   cards: Record<string, Card>;
   workSteps: WorkStep[];
   outputs: Record<string, Output>;
@@ -39,6 +41,7 @@ export function createInitialRoomState(
     lastSeq: 0,
     members: {},
     messages: [],
+    topics: {},
     cards: {},
     workSteps: [],
     outputs: {},
@@ -76,6 +79,7 @@ export function applyRoomEvent(prev: RoomState, event: RoomEvent): RoomState {
     lastSeq: event.seq,
     members: { ...prev.members },
     messages: prev.messages,
+    topics: { ...prev.topics },
     cards: { ...prev.cards },
     workSteps: prev.workSteps,
     outputs: { ...prev.outputs },
@@ -110,11 +114,33 @@ export function applyRoomEvent(prev: RoomState, event: RoomEvent): RoomState {
           text: p.text,
           mentions: p.mentions,
           refCardId: p.refCardId,
+          topicId: p.topicId,
           meta: p.meta,
           createdAt: event.createdAt,
           seq: event.seq,
         },
       ];
+      if (p.topicId && next.topics[p.topicId]) {
+        const existingTopic = next.topics[p.topicId];
+        next.topics[p.topicId] = {
+          ...existingTopic,
+          messageCount: existingTopic.messageCount + 1,
+          updatedAt: event.createdAt,
+        };
+      }
+      break;
+    }
+
+    case "topic_created": {
+      next.topics[p.topicId] = {
+        id: p.topicId,
+        title: p.title,
+        anchor: p.anchor,
+        createdBy: event.actorId,
+        createdAt: event.createdAt,
+        updatedAt: event.createdAt,
+        messageCount: 0,
+      };
       break;
     }
 

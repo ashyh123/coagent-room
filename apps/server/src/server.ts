@@ -5,6 +5,7 @@ import { AddressInfo } from "node:net";
 import { WebSocket, WebSocketServer } from "ws";
 import {
   AvatarSchema,
+  computeInboxItems,
   RoomAskHumanInputSchema,
   RoomCheckFilesInputSchema,
   RoomClaimCardInputSchema,
@@ -14,6 +15,7 @@ import {
   WsClientMessageSchema,
   WsServerMessage,
 } from "@coagent/protocol";
+import { answerPrivateQuestion, PrivateAskInputSchema } from "./private-assistant.js";
 import { RoomError, RoomService } from "./room.js";
 
 export interface RoomServerOptions {
@@ -175,6 +177,37 @@ export async function createRoomServer(options: RoomServerOptions = {}): Promise
           state: service.getState(),
           events: service.getEventsAfter(0),
         });
+        return;
+      }
+
+      if (req.method === "GET" && pathname === "/api/inbox") {
+        const token = getBearerToken(req);
+        const session = token ? service.getSession(token) : undefined;
+        if (!session) {
+          throw new RoomError("UNAUTHORIZED", "Valid Bearer token required", 401);
+        }
+        const dismissedIds = new Set(
+          urlObj.searchParams
+            .getAll("dismissed")
+            .flatMap((v) => v.split(","))
+            .map((v) => v.trim())
+            .filter(Boolean),
+        );
+        const items = computeInboxItems(service.getState(), session.memberId, dismissedIds);
+        sendJson(res, 200, { items });
+        return;
+      }
+
+      if (req.method === "POST" && pathname === "/api/private-ask") {
+        const token = getBearerToken(req);
+        const session = token ? service.getSession(token) : undefined;
+        if (!session || session.kind !== "human") {
+          throw new RoomError("UNAUTHORIZED", "Human session token required", 401);
+        }
+        const body = await readJsonBody(req);
+        const input = PrivateAskInputSchema.parse(body);
+        const result = await answerPrivateQuestion(service.getState(), session.memberId, input);
+        sendJson(res, 200, result);
         return;
       }
 
@@ -340,7 +373,12 @@ export async function createRoomServer(options: RoomServerOptions = {}): Promise
               parsed.mentions,
               parsed.refCardId,
               parsed.meta,
+              parsed.topicId,
             );
+            break;
+          }
+          case "create_topic": {
+            service.createTopic(session.memberId, parsed.title, parsed.anchor);
             break;
           }
           case "create_card": {

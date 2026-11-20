@@ -12,3 +12,4 @@
 | 2026-11-19 | D6 | 门禁（防死循环、文件范围锁、≤120 字步骤、急停）写在宿主代码 | 不可信赖提示词自觉 | Prompt 软约束 | — |
 | 2026-11-19 | D7 | MIT 全部开源、非营利 | 最利于社区信任与企业内网无顾虑采用 | FSL / AGPL / 闭源企业版 | — |
 | 2026-11-20 | D8 | 前端 v0.2 采用纯黑白极简 Design System（Tailwind CSS v4 + Radix UI + Motion，严格 4px 间距、6 档字号、同心圆角、深浅双主题），并向后兼容扩展可选 `Member.avatar` 与 `message_posted.meta` | 消除高饱和蓝紫与样式漂移，落地 Apple/Linear/Antigravity/Raft 级多端群聊与 3+1 卡片协作体验，同时不破坏旧版客户端或 CLI 协议 | 手写单体 CSS；强要求头像与消息元数据字段 | 需要开放第三方主题或插件市场 |
+| 2026-11-20 | D9 | v0.2 协作闭环引入话题线程（`Topic` + `TopicAnchor`）、4 类行动收件箱（`computeInboxItems` / `GET /api/inbox`）与私密 AI 侧栏（`POST /api/private-ask`）；私密问答严格只读 `RoomState` 快照，绝不产生房间事件、SQLite 写入或 WS 广播，未配置 `COAGENT_LLM_BASE_URL` 时降级为纯本地中文上下文分析 | 解决多讨论混流与关键待办遗漏问题，并支持对任意文本片段或卡片私密追问而零污染房间共享事件流与外网零强依赖 | 将私密消息写入 `events` 表再按成员隔离；强绑定外部 LLM API | 后续需要跨设备云端漫游个人私密问答历史时再增设独立私有存储 |

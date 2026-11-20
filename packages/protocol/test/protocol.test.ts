@@ -5,6 +5,7 @@ import {
   checkClaimConflicts,
   checkFileAccess,
   computeCardVersionHash,
+  computeInboxItems,
   globsMayOverlap,
   matchesGlob,
   MCP_TOOL_NAMES,
@@ -14,6 +15,8 @@ import {
   RoomEventSchema,
   RoomReportStepInputSchema,
   sha256Hex,
+  TopicAnchorSchema,
+  TopicSchema,
   WsClientMessageSchema,
 } from "../src/index.js";
 
@@ -266,5 +269,413 @@ describe("MCP tool & Event schemas", () => {
     expect(state.members.hum_2.avatar).toEqual(avatar);
     expect(state.messages[0].meta).toEqual(meta);
     expect(state.messages[0].refCardId).toBe("card_1");
+  });
+});
+
+describe("Topics reducer & 4-category Inbox", () => {
+  it("validates topic schemas and reduces topic_created + topic messages", () => {
+    const anchor = {
+      kind: "selection" as const,
+      targetId: "msg_0",
+      quote: "Use pure TS protocol for browser compatibility",
+    };
+    expect(TopicAnchorSchema.safeParse(anchor).success).toBe(true);
+    expect(
+      TopicSchema.safeParse({
+        id: "topic_1",
+        title: "Protocol boundary",
+        anchor,
+        createdBy: "hum_1",
+        createdAt: "2026-11-20T13:00:00.000Z",
+        updatedAt: "2026-11-20T13:00:00.000Z",
+        messageCount: 0,
+      }).success,
+    ).toBe(true);
+
+    expect(
+      WsClientMessageSchema.safeParse({
+        type: "create_topic",
+        title: "Protocol boundary",
+        anchor,
+      }).success,
+    ).toBe(true);
+
+    expect(
+      WsClientMessageSchema.safeParse({
+        type: "post_message",
+        text: "Follow up inside topic",
+        topicId: "topic_1",
+      }).success,
+    ).toBe(true);
+
+    const state = reduceRoomEvents("room_1", "Demo", [
+      {
+        seq: 1,
+        id: "evt_1",
+        roomId: "room_1",
+        actorId: "hum_1",
+        createdAt: "2026-11-20T13:00:00.000Z",
+        payload: {
+          type: "topic_created",
+          topicId: "topic_1",
+          title: "Protocol boundary",
+          anchor,
+        },
+      },
+      {
+        seq: 2,
+        id: "evt_2",
+        roomId: "room_1",
+        actorId: "hum_1",
+        createdAt: "2026-11-20T13:05:00.000Z",
+        payload: {
+          type: "message_posted",
+          messageId: "msg_1",
+          text: "First topic reply",
+          mentions: [],
+          topicId: "topic_1",
+        },
+      },
+      {
+        seq: 3,
+        id: "evt_3",
+        roomId: "room_1",
+        actorId: "hum_1",
+        createdAt: "2026-11-20T13:06:00.000Z",
+        payload: {
+          type: "message_posted",
+          messageId: "msg_2",
+          text: "Main room message",
+          mentions: [],
+        },
+      },
+    ]);
+
+    expect(state.topics.topic_1).toEqual({
+      id: "topic_1",
+      title: "Protocol boundary",
+      anchor,
+      createdBy: "hum_1",
+      createdAt: "2026-11-20T13:00:00.000Z",
+      updatedAt: "2026-11-20T13:05:00.000Z",
+      messageCount: 1,
+    });
+    expect(state.messages[0].topicId).toBe("topic_1");
+    expect(state.messages[1].topicId).toBeUndefined();
+  });
+
+  it("computes all 4 inbox categories sorted desc and auto-clears resolved items", () => {
+    const specA = {
+      title: "Draft Auth Card",
+      goal: "Add bearer token verification",
+      interfaceContract: "GET /api/inbox",
+      fileGlobs: ["apps/server/src/server.ts"],
+      acceptanceCriteria: ["200 OK with valid token"],
+    };
+    const hashA = computeCardVersionHash(specA);
+
+    const specB = {
+      title: "Review Output Card",
+      goal: "Build topic reducer",
+      interfaceContract: "TopicSchema",
+      fileGlobs: ["packages/protocol/src/reducer.ts"],
+      acceptanceCriteria: ["Unit tests pass"],
+    };
+    const hashB = computeCardVersionHash(specB);
+
+    const specC = {
+      title: "Agent Help Card",
+      goal: "Migrate SQLite schema",
+      interfaceContract: "events table",
+      fileGlobs: ["apps/server/src/db.ts"],
+      acceptanceCriteria: ["No data loss"],
+    };
+    const hashC = computeCardVersionHash(specC);
+
+    const events: Parameters<typeof reduceRoomEvents>[2] = [
+      {
+        seq: 1,
+        id: "e1",
+        roomId: "r1",
+        actorId: "hum_lin",
+        createdAt: "2026-11-20T10:00:00.000Z",
+        payload: {
+          type: "member_joined",
+          member: { id: "hum_lin", name: "Lin", kind: "human", online: true },
+        },
+      },
+      {
+        seq: 2,
+        id: "e2",
+        roomId: "r1",
+        actorId: "hum_evan",
+        createdAt: "2026-11-20T10:00:01.000Z",
+        payload: {
+          type: "member_joined",
+          member: { id: "hum_evan", name: "Evan", kind: "human", online: true },
+        },
+      },
+      {
+        seq: 3,
+        id: "e3",
+        roomId: "r1",
+        actorId: "agent_codex",
+        createdAt: "2026-11-20T10:00:02.000Z",
+        payload: {
+          type: "member_joined",
+          member: {
+            id: "agent_codex",
+            name: "Codex",
+            kind: "agent",
+            ownerId: "hum_evan",
+            driver: "codex",
+            online: true,
+            status: "idle",
+          },
+        },
+      },
+      // Card A stays draft -> confirm_card for hum_lin
+      {
+        seq: 4,
+        id: "e4",
+        roomId: "r1",
+        actorId: "hum_evan",
+        createdAt: "2026-11-20T10:01:00.000Z",
+        payload: { type: "card_created", cardId: "card_a", spec: specA, versionHash: hashA },
+      },
+      // Card B goes pending_review -> review_output
+      {
+        seq: 5,
+        id: "e5",
+        roomId: "r1",
+        actorId: "hum_evan",
+        createdAt: "2026-11-20T10:02:00.000Z",
+        payload: { type: "card_created", cardId: "card_b", spec: specB, versionHash: hashB },
+      },
+      {
+        seq: 6,
+        id: "e6",
+        roomId: "r1",
+        actorId: "hum_lin",
+        createdAt: "2026-11-20T10:02:10.000Z",
+        payload: { type: "card_confirmed", cardId: "card_b", versionHash: hashB, memberId: "hum_lin" },
+      },
+      {
+        seq: 7,
+        id: "e7",
+        roomId: "r1",
+        actorId: "agent_codex",
+        createdAt: "2026-11-20T10:02:20.000Z",
+        payload: {
+          type: "card_claimed",
+          cardId: "card_b",
+          versionHash: hashB,
+          agentId: "agent_codex",
+          agentName: "Codex",
+          fileGlobs: specB.fileGlobs,
+        },
+      },
+      {
+        seq: 8,
+        id: "e8",
+        roomId: "r1",
+        actorId: "agent_codex",
+        createdAt: "2026-11-20T10:03:00.000Z",
+        payload: {
+          type: "output_submitted",
+          outputId: "out_b",
+          cardId: "card_b",
+          cardVersionHash: hashB,
+          kind: "git_diff",
+          summary: "Implemented topics reducer",
+        },
+      },
+      // Card C with waiting_human agent
+      {
+        seq: 9,
+        id: "e9",
+        roomId: "r1",
+        actorId: "hum_evan",
+        createdAt: "2026-11-20T10:04:00.000Z",
+        payload: { type: "card_created", cardId: "card_c", spec: specC, versionHash: hashC },
+      },
+      {
+        seq: 10,
+        id: "e10",
+        roomId: "r1",
+        actorId: "hum_lin",
+        createdAt: "2026-11-20T10:04:10.000Z",
+        payload: { type: "card_confirmed", cardId: "card_c", versionHash: hashC, memberId: "hum_lin" },
+      },
+      {
+        seq: 11,
+        id: "e11",
+        roomId: "r1",
+        actorId: "agent_codex",
+        createdAt: "2026-11-20T10:04:20.000Z",
+        payload: {
+          type: "card_claimed",
+          cardId: "card_c",
+          versionHash: hashC,
+          agentId: "agent_codex",
+          agentName: "Codex",
+          fileGlobs: specC.fileGlobs,
+        },
+      },
+      {
+        seq: 12,
+        id: "e12",
+        roomId: "r1",
+        actorId: "agent_codex",
+        createdAt: "2026-11-20T10:05:00.000Z",
+        payload: {
+          type: "agent_asked_human",
+          cardId: "card_c",
+          agentId: "agent_codex",
+          question: "Should we keep backward-compatible column defaults?",
+        },
+      },
+      // Topic + mention by @lin (case-insensitive) + self message + unrelated @linda
+      {
+        seq: 13,
+        id: "e13",
+        roomId: "r1",
+        actorId: "hum_evan",
+        createdAt: "2026-11-20T10:06:00.000Z",
+        payload: {
+          type: "topic_created",
+          topicId: "topic_1",
+          title: "Auth Review",
+        },
+      },
+      {
+        seq: 14,
+        id: "e14",
+        roomId: "r1",
+        actorId: "hum_evan",
+        createdAt: "2026-11-20T10:06:10.000Z",
+        payload: {
+          type: "message_posted",
+          messageId: "msg_mention_text",
+          text: "请 @lin 看一下鉴权逻辑",
+          mentions: [],
+          topicId: "topic_1",
+        },
+      },
+      {
+        seq: 15,
+        id: "e15",
+        roomId: "r1",
+        actorId: "hum_lin",
+        createdAt: "2026-11-20T10:06:20.000Z",
+        payload: {
+          type: "message_posted",
+          messageId: "msg_self",
+          text: "@Lin self note",
+          mentions: ["hum_lin"],
+        },
+      },
+      {
+        seq: 16,
+        id: "e16",
+        roomId: "r1",
+        actorId: "hum_evan",
+        createdAt: "2026-11-20T10:06:30.000Z",
+        payload: {
+          type: "message_posted",
+          messageId: "msg_linda",
+          text: "Hi @Linda please check",
+          mentions: [],
+        },
+      },
+    ];
+
+    const state = reduceRoomEvents("r1", "Demo", events, 2);
+    const items = computeInboxItems(state, "hum_lin");
+
+    expect(items.map((i) => i.kind)).toEqual([
+      "mention",
+      "agent_help",
+      "review_output",
+      "confirm_card",
+    ]);
+    expect(items[0]).toMatchObject({
+      kind: "mention",
+      targetType: "message",
+      targetId: "msg_mention_text",
+      topicId: "topic_1",
+    });
+    expect(items[1]).toMatchObject({
+      kind: "agent_help",
+      targetType: "card",
+      targetId: "card_c",
+      summary: "Should we keep backward-compatible column defaults?",
+    });
+    expect(items[2]).toMatchObject({
+      kind: "review_output",
+      targetType: "card",
+      targetId: "card_b",
+      summary: "Implemented topics reducer",
+    });
+    expect(items[3]).toMatchObject({
+      kind: "confirm_card",
+      targetType: "card",
+      targetId: "card_a",
+    });
+
+    // Dismissing mention hides it
+    const afterDismiss = computeInboxItems(state, "hum_lin", new Set(["msg_mention_text"]));
+    expect(afterDismiss.map((i) => i.kind)).toEqual([
+      "agent_help",
+      "review_output",
+      "confirm_card",
+    ]);
+
+    // Resolving card_a confirmation, card_b review, and agent work step auto-clears them
+    const resolvedState = reduceRoomEvents("r1", "Demo", [
+      ...events,
+      {
+        seq: 17,
+        id: "e17",
+        roomId: "r1",
+        actorId: "hum_lin",
+        createdAt: "2026-11-20T10:07:00.000Z",
+        payload: {
+          type: "card_confirmed",
+          cardId: "card_a",
+          versionHash: hashA,
+          memberId: "hum_lin",
+        },
+      },
+      {
+        seq: 18,
+        id: "e18",
+        roomId: "r1",
+        actorId: "hum_lin",
+        createdAt: "2026-11-20T10:08:00.000Z",
+        payload: {
+          type: "card_reviewed",
+          cardId: "card_b",
+          outputId: "out_b",
+          decision: "accepted",
+        },
+      },
+      {
+        seq: 19,
+        id: "e19",
+        roomId: "r1",
+        actorId: "agent_codex",
+        createdAt: "2026-11-20T10:09:00.000Z",
+        payload: {
+          type: "work_step_reported",
+          stepId: "step_2",
+          cardId: "card_c",
+          agentId: "agent_codex",
+          summary: "Resumed migration after confirmation",
+        },
+      },
+    ], 2);
+
+    expect(computeInboxItems(resolvedState, "hum_lin", new Set(["msg_mention_text"]))).toEqual([]);
   });
 });

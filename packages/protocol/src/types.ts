@@ -84,3 +84,24 @@ export const RoomSummarySchema = z.object({
   createdAt: z.string().datetime(),
 });
 export type RoomSummary = z.infer<typeof RoomSummarySchema>;
+
+export const TopicAnchorKindSchema = z.enum(["message", "card", "output", "selection"]);
+export type TopicAnchorKind = z.infer<typeof TopicAnchorKindSchema>;
+
+export const TopicAnchorSchema = z.object({
+  kind: TopicAnchorKindSchema,
+  targetId: z.string().min(1).optional(),
+  quote: z.string().min(1).max(300).optional(),
+});
+export type TopicAnchor = z.infer<typeof TopicAnchorSchema>;
+
+export const TopicSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1).max(120),
+  anchor: TopicAnchorSchema.optional(),
+  createdBy: z.string().min(1),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  messageCount: z.number().int().nonnegative().default(0),
+});
+export type Topic = z.infer<typeof TopicSchema>;

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { CardSpecSchema } from "./cards.js";
-import { MemberSchema, OutputKindSchema } from "./types.js";
+import { MemberSchema, OutputKindSchema, TopicAnchorSchema } from "./types.js";
 
 export const PermissionModeSchema = z.enum(["ask", "auto", "plan"]);
 export type PermissionMode = z.infer<typeof PermissionModeSchema>;
@@ -34,7 +34,14 @@ export const EventPayloadSchema = z.discriminatedUnion("type", [
     text: z.string().min(1).max(4000),
     mentions: z.array(z.string()).default([]),
     refCardId: z.string().optional(),
+    topicId: z.string().min(1).optional(),
     meta: MessageMetaSchema.optional(),
+  }),
+  z.object({
+    type: z.literal("topic_created"),
+    topicId: z.string().min(1),
+    title: z.string().min(1).max(120),
+    anchor: TopicAnchorSchema.optional(),
   }),
   z.object({
     type: z.literal("card_created"),
@@ -123,7 +130,13 @@ export const WsClientMessageSchema = z.discriminatedUnion("type", [
     text: z.string().min(1).max(4000),
     mentions: z.array(z.string()).default([]),
     refCardId: z.string().optional(),
+    topicId: z.string().min(1).optional(),
     meta: MessageMetaSchema.optional(),
+  }),
+  z.object({
+    type: z.literal("create_topic"),
+    title: z.string().min(1).max(120),
+    anchor: TopicAnchorSchema.optional(),
   }),
   z.object({
     type: z.literal("create_card"),
