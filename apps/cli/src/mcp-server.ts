@@ -15,6 +15,7 @@ const TOOL_DEFINITIONS = [
     name: "room_get_context",
     description:
       "Read confirmed consensus cards, active file-scope locks, and room metadata before claiming or editing files.",
+    annotations: { readOnlyHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -26,6 +27,7 @@ const TOOL_DEFINITIONS = [
     name: "room_claim_card",
     description:
       "Claim a confirmed consensus card and lock its fileGlobs. Host rejects overlapping locks held by other agents.",
+    annotations: { readOnlyHint: false },
     inputSchema: {
       type: "object",
       required: ["cardId", "versionHash", "fileGlobs"],
@@ -40,6 +42,7 @@ const TOOL_DEFINITIONS = [
     name: "room_check_files",
     description:
       "Check whether target file paths are within your claimed scope or locked by another collaborator's agent.",
+    annotations: { readOnlyHint: true },
     inputSchema: {
       type: "object",
       required: ["paths"],
@@ -51,6 +54,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "room_report_step",
     description: "Report a concise milestone step (<= 120 chars) to the room board.",
+    annotations: { readOnlyHint: false },
     inputSchema: {
       type: "object",
       required: ["cardId", "summary"],
@@ -64,6 +68,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "room_ask_human",
     description: "Ask human collaborators one focused clarification question when blocked.",
+    annotations: { readOnlyHint: false },
     inputSchema: {
       type: "object",
       required: ["cardId", "question"],
@@ -77,6 +82,7 @@ const TOOL_DEFINITIONS = [
     name: "room_submit_output",
     description:
       "Submit your completed git diff or artifact bound to the card versionHash for human review. If diff is omitted, captures local `git diff HEAD` automatically.",
+    annotations: { readOnlyHint: false },
     inputSchema: {
       type: "object",
       required: ["cardId", "cardVersionHash", "summary"],

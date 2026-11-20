@@ -1,6 +1,13 @@
 import { execFileSync } from "node:child_process";
 import WebSocket from "ws";
-import { McpToolName, WsServerMessage, WsServerMessageSchema } from "@coagent/protocol";
+import {
+  McpToolName,
+  RoomEvent,
+  RoomState,
+  WsClientMessage,
+  WsServerMessage,
+  WsServerMessageSchema,
+} from "@coagent/protocol";
 
 export interface RegisteredAgent {
   agentId: string;
@@ -41,6 +48,32 @@ export class RoomHttpClient {
     return data;
   }
 
+  async getSnapshot(): Promise<{ memberId: string; state: RoomState; events: RoomEvent[] }> {
+    if (!this.agentToken) {
+      throw new Error("Agent session token not set");
+    }
+    const res = await fetch(`${this.baseUrl}/api/snapshot`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${this.agentToken}`,
+      },
+    });
+    const data = (await res.json()) as {
+      memberId: string;
+      state: RoomState;
+      events: RoomEvent[];
+      message?: string;
+    };
+    if (!res.ok) {
+      throw new Error(data.message ?? `Failed to fetch snapshot (${res.status})`);
+    }
+    return {
+      memberId: data.memberId,
+      state: data.state,
+      events: data.events,
+    };
+  }
+
   async callMcpTool(toolName: McpToolName, args: Record<string, unknown>): Promise<unknown> {
     if (!this.agentToken) {
       throw new Error("Agent session token not set");
@@ -64,7 +97,16 @@ export class RoomHttpClient {
     return data;
   }
 
+  sendWsMessage(ws: WebSocket, msg: WsClientMessage): boolean {
+    if (ws.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    ws.send(JSON.stringify(msg));
+    return true;
+  }
+
   connectWs(handlers: {
+    onOpen?: () => void;
     onMessage?: (msg: WsServerMessage) => void;
     onKill?: (signal: { agentId: string; stoppedBy: string; reason?: string }) => void;
     onClose?: () => void;
@@ -74,6 +116,8 @@ export class RoomHttpClient {
     }
     const wsUrl = `${this.baseUrl.replace(/^http/, "ws")}/ws?token=${encodeURIComponent(this.agentToken)}`;
     const ws = new WebSocket(wsUrl);
+
+    ws.on("open", () => handlers.onOpen?.());
 
     ws.on("message", (raw) => {
       try {
