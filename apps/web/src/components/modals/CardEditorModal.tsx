@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { CardSpec, computeCardVersionHash } from "@coagent/protocol";
 import { Button } from "../ui/Button.js";
 import {
@@ -12,7 +12,7 @@ import {
 
 interface CardEditorModalProps {
   open: boolean;
-  initial?: CardSpec;
+  initial?: Partial<CardSpec>;
   titleText: string;
   onClose: () => void;
   onSave: (spec: CardSpec) => void;
@@ -31,11 +31,26 @@ export function CardEditorModal({
     initial?.interfaceContract ?? "",
   );
   const [globsText, setGlobsText] = useState(
-    initial?.fileGlobs.join("\n") ?? "apps/server/src/**",
+    initial?.fileGlobs && initial.fileGlobs.length > 0
+      ? initial.fileGlobs.join("\n")
+      : "apps/server/src/**",
   );
   const [criteriaText, setCriteriaText] = useState(
-    initial?.acceptanceCriteria.join("\n") ?? "",
+    initial?.acceptanceCriteria?.join("\n") ?? "",
   );
+
+  useEffect(() => {
+    if (!open) return;
+    setTitle(initial?.title ?? "");
+    setGoal(initial?.goal ?? "");
+    setInterfaceContract(initial?.interfaceContract ?? "");
+    setGlobsText(
+      initial?.fileGlobs && initial.fileGlobs.length > 0
+        ? initial.fileGlobs.join("\n")
+        : "apps/server/src/**",
+    );
+    setCriteriaText(initial?.acceptanceCriteria?.join("\n") ?? "");
+  }, [open, initial]);
 
   const fileGlobs = globsText
     .split(/[\n,]/)
@@ -61,7 +76,13 @@ export function CardEditorModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSave) return;
-    onSave({ title, goal, interfaceContract, fileGlobs, acceptanceCriteria });
+    onSave({
+      title: title.trim(),
+      goal: goal.trim(),
+      interfaceContract: interfaceContract.trim(),
+      fileGlobs,
+      acceptanceCriteria,
+    });
     onClose();
   };
 
@@ -99,6 +120,7 @@ export function CardEditorModal({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="例如：实现房间口令鉴权"
+              maxLength={120}
               required
               className="w-full px-3 py-2 text-[13px]"
               style={inputStyle}

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Card, Member, WorkStep } from "@coagent/protocol";
-import { Check, ChevronDown, ChevronRight, Edit3, FileCode2 } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Edit3, FileCode2, MessageSquarePlus } from "lucide-react";
 import { Avatar } from "../ui/Avatar.js";
 import { Button } from "../ui/Button.js";
 
@@ -35,6 +35,7 @@ interface SpecCardProps {
   highlighted: boolean;
   onConfirm: () => void;
   onEdit: () => void;
+  onStartTopic?: () => void;
 }
 
 export function SpecCard({
@@ -47,6 +48,7 @@ export function SpecCard({
   highlighted,
   onConfirm,
   onEdit,
+  onStartTopic,
 }: SpecCardProps) {
   const [showGlobs, setShowGlobs] = useState(false);
   const [showSteps, setShowSteps] = useState(workSteps.length > 0);
@@ -70,6 +72,8 @@ export function SpecCard({
   return (
     <article
       id={`card-panel-${card.id}`}
+      data-card-id={card.id}
+      data-selectable-kind="card"
       className="flex flex-col gap-3 p-4 transition-[border-color,box-shadow] duration-200"
       style={{
         background: "var(--surface)",
@@ -160,6 +164,18 @@ export function SpecCard({
         </div>
 
         <div className="flex items-center gap-1.5">
+          {onStartTopic && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={onStartTopic}
+              title="围绕此卡片开新话题"
+            >
+              <MessageSquarePlus size={12} />
+              开话题
+            </Button>
+          )}
           <Button type="button" variant="outline" size="sm" onClick={onEdit}>
             <Edit3 size={12} />
             编辑

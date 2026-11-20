@@ -54,13 +54,14 @@ interface BoardPaneProps {
   ) => void;
   onSendMessage: (
     text: string,
-    options?: { mentions?: string[]; refCardId?: string; meta?: MessageMeta },
+    options?: { mentions?: string[]; refCardId?: string; meta?: MessageMeta; topicId?: string },
   ) => void;
   onStopAgent: (agentId: string, reason?: string) => void;
   onChangeCardListWidth: (width: number) => void;
   onToggleCardList: () => void;
   onChangeViewMode: (mode: WorkspaceViewMode) => void;
   onOpenNewCard: () => void;
+  onCreateTopicFromCard?: (card: Card) => void;
   style?: React.CSSProperties;
 }
 
@@ -83,6 +84,7 @@ export function BoardPane({
   onToggleCardList,
   onChangeViewMode,
   onOpenNewCard,
+  onCreateTopicFromCard,
   style,
 }: BoardPaneProps) {
   const [editing, setEditing] = useState(false);
@@ -212,10 +214,10 @@ export function BoardPane({
     >
       {/* Clean Monochrome Board Header */}
       <div
-        className="flex h-11 shrink-0 items-center justify-between gap-2 px-4"
+        className="flex h-11 shrink-0 items-center justify-between gap-2 px-4 max-md:px-2"
         style={{ borderBottom: "1px solid var(--border)" }}
       >
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2 max-md:gap-1">
           <Button
             type="button"
             variant="ghost"
@@ -224,11 +226,13 @@ export function BoardPane({
             title={cardListCollapsed ? "展开卡片列表侧边栏" : "收起卡片列表侧边栏"}
           >
             {cardListCollapsed ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
-            {cardListCollapsed ? `卡片列表 (${cards.length})` : "收起列表"}
+            <span className="max-md:hidden">
+              {cardListCollapsed ? `卡片列表 (${cards.length})` : "收起列表"}
+            </span>
           </Button>
 
           <div
-            className="inline-flex items-center gap-0.5 p-0.5"
+            className="inline-flex shrink-0 items-center gap-0.5 p-0.5"
             style={{
               background: "var(--surface-2)",
               borderRadius: "8px",
@@ -242,7 +246,7 @@ export function BoardPane({
                   key={opt.id}
                   type="button"
                   onClick={() => setFilter(opt.id)}
-                  className="rounded-[6px] px-2 py-0.5 text-[11px] font-medium cursor-pointer"
+                  className="rounded-[6px] px-2 py-0.5 text-[11px] font-medium whitespace-nowrap cursor-pointer"
                   style={
                     active
                       ? {
@@ -272,6 +276,7 @@ export function BoardPane({
                 variant="ghost"
                 size="sm"
                 title="恢复分栏视图"
+                className="max-md:hidden"
                 onClick={() => onChangeViewMode("split")}
               >
                 展开沟通
@@ -374,7 +379,10 @@ export function BoardPane({
         )}
 
         {/* Right Detail Canvas */}
-        <div className="card-detail flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+        <div
+          data-selectable-room-content="true"
+          className="card-detail flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto p-4"
+        >
           {/* Quick card switcher pill strip when sidebar is collapsed and multiple cards exist */}
           {cardListCollapsed && cards.length > 1 && (
             <div className="flex flex-wrap items-center gap-1.5">
@@ -438,6 +446,9 @@ export function BoardPane({
                   highlighted={highlightedCardId === selected.id}
                   onConfirm={() => onConfirmCard(selected.id, selected.versionHash)}
                   onEdit={() => setEditing(true)}
+                  onStartTopic={
+                    onCreateTopicFromCard ? () => onCreateTopicFromCard(selected) : undefined
+                  }
                 />
               )}
 
@@ -445,17 +456,18 @@ export function BoardPane({
               {selected &&
                 (filter === "all" || filter === "diff") &&
                 cardOutputs.map((out, idx) => (
-                  <DiffCard
-                    key={out.id}
-                    output={out}
-                    cardStatus={selected.status}
-                    members={state.members}
-                    defaultExpanded={selected.status === "pending_review" || idx === 0}
-                    onAccept={() => onReviewCard(selected.id, out.id, "accepted")}
-                    onRequestChanges={() =>
-                      onReviewCard(selected.id, out.id, "changes_requested")
-                    }
-                  />
+                  <div key={out.id} data-output-id={out.id} data-card-id={selected.id}>
+                    <DiffCard
+                      output={out}
+                      cardStatus={selected.status}
+                      members={state.members}
+                      defaultExpanded={selected.status === "pending_review" || idx === 0}
+                      onAccept={() => onReviewCard(selected.id, out.id, "accepted")}
+                      onRequestChanges={() =>
+                        onReviewCard(selected.id, out.id, "changes_requested")
+                      }
+                    />
+                  </div>
                 ))}
 
               {selected && filter === "diff" && cardOutputs.length === 0 && (

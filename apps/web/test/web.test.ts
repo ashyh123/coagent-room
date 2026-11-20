@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { computeCardVersionHash, reduceRoomEvents, RoomEvent } from "@coagent/protocol";
+import {
+  CardSpecSchema,
+  computeCardVersionHash,
+  computeInboxItems,
+  reduceRoomEvents,
+  RoomEvent,
+} from "@coagent/protocol";
+import {
+  ActiveChannel,
+  isSameChannel,
+  partitionAgents,
+} from "../src/utils/channels.js";
 import {
   buildCardNumberMap,
   formatFileSize,
@@ -8,18 +19,30 @@ import {
 } from "../src/utils/chat.js";
 import { classifyDiffLine, parseDiff } from "../src/utils/diff.js";
 import {
+  buildDraftSpecFromText,
+  buildTopicTitleFromText,
+  getDismissedMentionsStorageKey,
+  loadDismissedMentions,
+  saveDismissedMentions,
+} from "../src/utils/inbox.js";
+import {
+  COLLAPSED_SIDEBAR_WIDTH,
   DEFAULT_CARD_LIST_WIDTH,
   DEFAULT_CHAT_WIDTH,
   DEFAULT_LAYOUT,
+  DEFAULT_SIDEBAR_WIDTH,
   LAYOUT_STORAGE_KEY,
   MAX_CARD_LIST_WIDTH,
   MAX_COMPOSER_HEIGHT,
+  MAX_SIDEBAR_WIDTH,
   MIN_CARD_LIST_WIDTH,
   MIN_CHAT_WIDTH,
   MIN_COMPOSER_HEIGHT,
+  MIN_SIDEBAR_WIDTH,
   clampCardListWidth,
   clampChatWidth,
   clampComposerHeight,
+  clampSidebarWidth,
   loadLayout,
   sanitizeLayout,
   saveLayout,
@@ -94,13 +117,45 @@ describe("apps/web layout helpers & persistence", () => {
     expect(clampComposerHeight(Number.NaN, 600)).toBe(MIN_COMPOSER_HEIGHT);
   });
 
+  it("clamps sidebar width across normal and narrow containers", () => {
+    expect(COLLAPSED_SIDEBAR_WIDTH).toBe(48);
+    expect(clampSidebarWidth(228, 1200)).toBe(DEFAULT_SIDEBAR_WIDTH);
+    expect(clampSidebarWidth(100, 1200)).toBe(MIN_SIDEBAR_WIDTH);
+    expect(clampSidebarWidth(500, 1200)).toBe(MAX_SIDEBAR_WIDTH);
+    expect(clampSidebarWidth(300, 500)).toBe(240);
+    expect(clampSidebarWidth(300, 400)).toBe(140);
+    expect(clampSidebarWidth(Number.NaN, 1200)).toBe(DEFAULT_SIDEBAR_WIDTH);
+    expect(clampSidebarWidth(Number.NaN)).toBe(DEFAULT_SIDEBAR_WIDTH);
+  });
+
   it("sanitizes invalid layout payloads and preserves valid values", () => {
     expect(sanitizeLayout(null)).toEqual(DEFAULT_LAYOUT);
     expect(sanitizeLayout("bad")).toEqual(DEFAULT_LAYOUT);
 
+    // Backward-compatible migration for legacy payloads without sidebarWidth/sidebarCollapsed
+    expect(
+      sanitizeLayout({
+        viewMode: "split",
+        chatWidth: 420,
+        cardListWidth: 260,
+        cardListCollapsed: true,
+        composerHeight: null,
+      }),
+    ).toEqual({
+      viewMode: "split",
+      sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
+      sidebarCollapsed: false,
+      chatWidth: 420,
+      cardListWidth: 260,
+      cardListCollapsed: true,
+      composerHeight: null,
+    });
+
     expect(
       sanitizeLayout({
         viewMode: "unknown",
+        sidebarWidth: 50,
+        sidebarCollapsed: "nope",
         chatWidth: 50,
         cardListWidth: 9999,
         cardListCollapsed: "yes",
@@ -108,6 +163,8 @@ describe("apps/web layout helpers & persistence", () => {
       }),
     ).toEqual({
       viewMode: "split",
+      sidebarWidth: MIN_SIDEBAR_WIDTH,
+      sidebarCollapsed: false,
       chatWidth: MIN_CHAT_WIDTH,
       cardListWidth: MAX_CARD_LIST_WIDTH,
       cardListCollapsed: DEFAULT_LAYOUT.cardListCollapsed,
@@ -117,6 +174,8 @@ describe("apps/web layout helpers & persistence", () => {
     expect(
       sanitizeLayout({
         viewMode: "chat",
+        sidebarWidth: 260,
+        sidebarCollapsed: true,
         chatWidth: 450,
         cardListWidth: 260,
         cardListCollapsed: true,
@@ -124,6 +183,8 @@ describe("apps/web layout helpers & persistence", () => {
       }),
     ).toEqual({
       viewMode: "chat",
+      sidebarWidth: 260,
+      sidebarCollapsed: true,
       chatWidth: 450,
       cardListWidth: 260,
       cardListCollapsed: true,
@@ -147,6 +208,8 @@ describe("apps/web layout helpers & persistence", () => {
 
     const next = {
       viewMode: "board" as const,
+      sidebarWidth: 256,
+      sidebarCollapsed: true,
       chatWidth: 410,
       cardListWidth: 240,
       cardListCollapsed: true,
@@ -233,5 +296,187 @@ describe("apps/web v0.2 diff parser & chat grouping helpers", () => {
     expect(getInitials("Evan Huang")).toBe("EH");
     expect(getInitials("Lin")).toBe("LI");
     expect(getInitials("小明")).toBe("小");
+  });
+});
+
+describe("apps/web v0.2 inbox persistence & draft spec conversion", () => {
+  it("loads and saves dismissed mention IDs scoped by room and member", () => {
+    const store = new Map<string, string>();
+    const mockStorage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, val: string) => {
+        store.set(key, val);
+      },
+    };
+
+    expect(loadDismissedMentions("room_1", "mem_1", mockStorage).size).toBe(0);
+    expect(loadDismissedMentions("", "mem_1", mockStorage).size).toBe(0);
+    expect(loadDismissedMentions("room_1", "mem_1", null).size).toBe(0);
+
+    store.set(getDismissedMentionsStorageKey("room_1", "mem_1"), "{broken json");
+    expect(loadDismissedMentions("room_1", "mem_1", mockStorage).size).toBe(0);
+
+    store.set(getDismissedMentionsStorageKey("room_1", "mem_1"), JSON.stringify({ bad: true }));
+    expect(loadDismissedMentions("room_1", "mem_1", mockStorage).size).toBe(0);
+
+    saveDismissedMentions("room_1", "mem_1", ["msg_1", "msg_2", "msg_1", ""], mockStorage);
+    const loaded = loadDismissedMentions("room_1", "mem_1", mockStorage);
+    expect(Array.from(loaded)).toEqual(["msg_1", "msg_2"]);
+
+    // Isolated across rooms and members
+    expect(loadDismissedMentions("room_2", "mem_1", mockStorage).size).toBe(0);
+    expect(loadDismissedMentions("room_1", "mem_2", mockStorage).size).toBe(0);
+
+    // Works seamlessly with protocol computeInboxItems
+    const events: RoomEvent[] = [
+      {
+        seq: 1,
+        id: "e1",
+        roomId: "room_1",
+        actorId: "mem_1",
+        createdAt: "2026-11-20T12:00:00.000Z",
+        payload: {
+          type: "member_joined",
+          member: { id: "mem_1", name: "Evan", kind: "human", online: true },
+        },
+      },
+      {
+        seq: 2,
+        id: "e2",
+        roomId: "room_1",
+        actorId: "mem_2",
+        createdAt: "2026-11-20T12:00:01.000Z",
+        payload: {
+          type: "member_joined",
+          member: { id: "mem_2", name: "Alice", kind: "human", online: true },
+        },
+      },
+      {
+        seq: 3,
+        id: "e3",
+        roomId: "room_1",
+        actorId: "mem_2",
+        createdAt: "2026-11-20T12:00:02.000Z",
+        payload: {
+          type: "message_posted",
+          messageId: "msg_1",
+          text: "@Evan 请确认协议字段",
+          mentions: ["mem_1"],
+        },
+      },
+      {
+        seq: 4,
+        id: "e4",
+        roomId: "room_1",
+        actorId: "mem_2",
+        createdAt: "2026-11-20T12:00:03.000Z",
+        payload: {
+          type: "message_posted",
+          messageId: "msg_3",
+          text: "@Evan 还有一条新提醒",
+          mentions: ["mem_1"],
+        },
+      },
+    ];
+    const state = reduceRoomEvents("room_1", "Demo", events, 1);
+    const items = computeInboxItems(state, "mem_1", loaded);
+    expect(items.map((item) => item.targetId)).toEqual(["msg_3"]);
+  });
+
+  it("converts selected text and private Q&A into valid Partial<CardSpec> drafts", () => {
+    const fromMarkdown = buildDraftSpecFromText(
+      [
+        "## 实现 Inbox 聚合与跳转",
+        "修改 apps/web/src/components/topbar/InboxPopover.tsx 与 packages/protocol/src/inbox.ts",
+        "- [ ] 支持 5 个过滤标签与清空 @ 提醒",
+        "验收：pnpm verify 全绿",
+      ].join("\n"),
+      "私密问答",
+    );
+
+    expect(fromMarkdown.title).toBe("实现 Inbox 聚合与跳转");
+    expect(fromMarkdown.goal).toContain("修改 apps/web/src/components/topbar/InboxPopover.tsx");
+    expect(fromMarkdown.goal).toContain("来源：私密问答");
+    expect(fromMarkdown.fileGlobs).toEqual([
+      "apps/web/src/components/topbar/InboxPopover.tsx",
+      "packages/protocol/src/inbox.ts",
+    ]);
+    expect(fromMarkdown.acceptanceCriteria).toEqual([
+      "支持 5 个过滤标签与清空 @ 提醒",
+      "pnpm verify 全绿",
+    ]);
+    expect(CardSpecSchema.safeParse(fromMarkdown).success).toBe(true);
+
+    const longText = "非常长的讨论文本 ".repeat(30);
+    const fromLong = buildDraftSpecFromText(longText);
+    expect(fromLong.title && fromLong.title.length <= 120).toBe(true);
+    expect(fromLong.fileGlobs).toEqual(["src/**"]);
+    expect(CardSpecSchema.safeParse(fromLong).success).toBe(true);
+
+    const fromEmpty = buildDraftSpecFromText("   \n  ", "选中片段");
+    expect(CardSpecSchema.safeParse(fromEmpty).success).toBe(true);
+
+    expect(buildTopicTitleFromText("- #02 话题线程与私密助手联调\n更多细节")).toBe(
+      "#02 话题线程与私密助手联调",
+    );
+  });
+});
+
+describe("apps/web v0.2.1 sidebar channels & agent partitioning", () => {
+  it("compares ActiveChannel values accurately across all kinds", () => {
+    const channels: ActiveChannel[] = [
+      { kind: "room" },
+      { kind: "topic", topicId: "t1" },
+      { kind: "topic", topicId: "t2" },
+      { kind: "private_bot" },
+      { kind: "agent", agentId: "ag_1" },
+      { kind: "agent", agentId: "ag_2" },
+    ];
+
+    expect(isSameChannel(channels[0], { kind: "room" })).toBe(true);
+    expect(isSameChannel(channels[1], { kind: "topic", topicId: "t1" })).toBe(true);
+    expect(isSameChannel(channels[1], channels[2])).toBe(false);
+    expect(isSameChannel(channels[3], { kind: "private_bot" })).toBe(true);
+    expect(isSameChannel(channels[4], { kind: "agent", agentId: "ag_1" })).toBe(true);
+    expect(isSameChannel(channels[4], channels[5])).toBe(false);
+    expect(isSameChannel(channels[0], channels[3])).toBe(false);
+    expect(isSameChannel(channels[1], channels[4])).toBe(false);
+  });
+
+  it("partitions agents into myAgents (owned or unowned) and otherAgents", () => {
+    const members = {
+      hum_me: { id: "hum_me", name: "Evan", kind: "human" as const, online: true },
+      hum_other: { id: "hum_other", name: "Lin", kind: "human" as const, online: true },
+      ag_mine: {
+        id: "ag_mine",
+        name: "Codex-Mine",
+        kind: "agent" as const,
+        ownerId: "hum_me",
+        driver: "codex" as const,
+        online: true,
+        status: "working" as const,
+      },
+      ag_legacy: {
+        id: "ag_legacy",
+        name: "Agent-Legacy",
+        kind: "agent" as const,
+        driver: "claude-code" as const,
+        online: false,
+        status: "idle" as const,
+      },
+      ag_theirs: {
+        id: "ag_theirs",
+        name: "Lin-Codex",
+        kind: "agent" as const,
+        ownerId: "hum_other",
+        driver: "codex" as const,
+        online: true,
+        status: "idle" as const,
+      },
+    };
+
+    const { myAgents, otherAgents } = partitionAgents(members, "hum_me");
+    expect(myAgents.map((a) => a.id)).toEqual(["ag_mine", "ag_legacy"]);
+    expect(otherAgents.map((a) => a.id)).toEqual(["ag_theirs"]);
   });
 });

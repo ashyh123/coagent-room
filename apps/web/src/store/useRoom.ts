@@ -7,6 +7,7 @@ import {
   reduceRoomEvents,
   RoomEvent,
   RoomState,
+  TopicAnchor,
   WsClientMessage,
   WsServerMessageSchema,
 } from "@coagent/protocol";
@@ -138,6 +139,54 @@ export function useRoom(session: SessionInfo | null) {
     };
   }, [session]);
 
+  const askPrivateAgent = useCallback(
+    async (input: {
+      question: string;
+      quote?: string;
+      activeCardId?: string;
+      topicId?: string;
+      model?: string;
+    }): Promise<{ answer: string; source: "llm" | "local_context"; model?: string }> => {
+      if (!session) {
+        throw new Error("未加入房间，无法向私密助手提问");
+      }
+      const question = input.question.trim().slice(0, 2000);
+      if (!question) {
+        throw new Error("提问内容不能为空");
+      }
+      const payload: Record<string, string> = { question };
+      if (input.quote?.trim()) payload.quote = input.quote.trim().slice(0, 1000);
+      if (input.activeCardId?.trim()) payload.activeCardId = input.activeCardId.trim();
+      if (input.topicId?.trim()) payload.topicId = input.topicId.trim();
+      if (input.model?.trim()) payload.model = input.model.trim().slice(0, 100);
+
+      const response = await fetch("/api/private-ask", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.sessionToken}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = (await response.json().catch(() => ({}))) as {
+        answer?: string;
+        source?: "llm" | "local_context";
+        model?: string;
+        message?: string;
+      };
+      if (!response.ok || !data.answer) {
+        throw new Error(data.message ?? `私密提问请求失败 (${response.status})`);
+      }
+      return {
+        answer: data.answer,
+        source: data.source === "llm" ? "llm" : "local_context",
+        ...(data.model ? { model: data.model } : {}),
+      };
+    },
+    [session],
+  );
+
   return {
     state,
     events,
@@ -145,14 +194,21 @@ export function useRoom(session: SessionInfo | null) {
     lastError,
     postMessage: (
       text: string,
-      options?: { mentions?: string[]; refCardId?: string; meta?: MessageMeta },
+      options?: { mentions?: string[]; refCardId?: string; meta?: MessageMeta; topicId?: string },
     ) =>
       send({
         type: "post_message",
         text,
         mentions: options?.mentions ?? [],
         refCardId: options?.refCardId,
+        topicId: options?.topicId,
         meta: options?.meta,
+      }),
+    createTopic: (title: string, anchor?: TopicAnchor) =>
+      send({
+        type: "create_topic",
+        title,
+        anchor,
       }),
     createCard: (spec: CardSpec) => send({ type: "create_card", spec }),
     updateCard: (cardId: string, spec: CardSpec) => send({ type: "update_card", cardId, spec }),
@@ -161,5 +217,6 @@ export function useRoom(session: SessionInfo | null) {
     reviewCard: (cardId: string, outputId: string, decision: "accepted" | "changes_requested") =>
       send({ type: "review_card", cardId, outputId, decision }),
     stopAgent: (agentId: string, reason?: string) => send({ type: "stop_agent", agentId, reason }),
+    askPrivateAgent,
   };
 }

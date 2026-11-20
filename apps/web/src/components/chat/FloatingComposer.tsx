@@ -1,9 +1,18 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Card, Member, MessageAttachment, MessageMeta, PermissionMode } from "@coagent/protocol";
+import {
+  Card,
+  containsRoomSecret,
+  Member,
+  MessageAttachment,
+  MessageMeta,
+  PermissionMode,
+  redactRoomSecrets,
+} from "@coagent/protocol";
 import {
   ArrowUp,
   Check,
   ChevronDown,
+  Lock,
   Maximize2,
   Minimize2,
   OctagonX,
@@ -20,6 +29,7 @@ import {
   MIN_COMPOSER_HEIGHT,
   clampComposerHeight,
 } from "../../utils/layout.js";
+import { Button } from "../ui/Button.js";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover.js";
 
 const MODEL_STORAGE_KEY = "coagent_room_composer_model_v1";
@@ -37,18 +47,66 @@ const PERMISSION_OPTIONS: ReadonlyArray<{
   { id: "plan", label: "Plan 规划", desc: "只输出分析与方案草案，不修改工作区文件" },
 ];
 
-interface FloatingComposerProps {
+export interface FloatingComposerProps {
   paneRef: React.RefObject<HTMLElement | null>;
   composerHeight: number | null;
   cards: Card[];
   cardNumbers: Record<string, string>;
   workingAgents: Member[];
+  activeTopicTitle?: string | null;
+  members: readonly Member[];
+  lockedPrivateMode?: boolean;
+  hidePrivateToggle?: boolean;
+  placeholderOverride?: string;
   onChangeComposerHeight: (height: number | null) => void;
   onSendMessage: (
     text: string,
     options?: { mentions?: string[]; refCardId?: string; meta?: MessageMeta },
   ) => void;
+  onAskPrivate: (input: { question: string; quote?: string; model?: string }) => void;
   onStopAgent: (agentId: string, reason?: string) => void;
+}
+
+const PRIVATE_PREFIX_RE = /^(?:@我的agent|@自己的agent|\/ask)(?=\s|$)/i;
+const PRIVATE_MENTION_NAMES = new Set(["我的agent", "自己的agent"]);
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function parseComposerSubmission(
+  raw: string,
+  privateMode: boolean,
+  allowPrivatePrefixes = true,
+): { isPrivate: boolean; question: string } {
+  const trimmed = raw.trim();
+  if (allowPrivatePrefixes) {
+    const match = trimmed.match(PRIVATE_PREFIX_RE);
+    if (match) {
+      return {
+        isPrivate: true,
+        question: trimmed.slice(match[0].length).trim(),
+      };
+    }
+  }
+  return {
+    isPrivate: privateMode,
+    question: trimmed,
+  };
+}
+
+function resolveMentions(text: string, members: readonly Member[]): string[] {
+  const mentions: string[] = [];
+  for (const member of members) {
+    const trimmed = member.name.trim();
+    if (!trimmed || PRIVATE_MENTION_NAMES.has(trimmed.toLowerCase())) continue;
+    const escaped = escapeRegExp(trimmed);
+    const pattern = new RegExp(`(^|[^A-Za-z0-9_])@${escaped}(?=$|[^A-Za-z0-9_])`, "i");
+    if (pattern.test(text)) {
+      mentions.push(member.id);
+    }
+  }
+  return mentions;
 }
 
 function readStoredString(key: string, fallback: string): string {
@@ -65,11 +123,19 @@ export function FloatingComposer({
   cards,
   cardNumbers,
   workingAgents,
+  activeTopicTitle,
+  members,
+  lockedPrivateMode = false,
+  hidePrivateToggle = false,
+  placeholderOverride,
   onChangeComposerHeight,
   onSendMessage,
+  onAskPrivate,
   onStopAgent,
 }: FloatingComposerProps) {
   const [draft, setDraft] = useState("");
+  const [privateMode, setPrivateMode] = useState(false);
+  const [secretWarning, setSecretWarning] = useState(false);
   const [model, setModel] = useState<string>(() => readStoredString(MODEL_STORAGE_KEY, "Claude 4.5"));
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(() => {
     const raw = readStoredString(PERMISSION_STORAGE_KEY, "ask");
@@ -141,6 +207,7 @@ export function FloatingComposer({
 
   const handleDraftChange = (value: string) => {
     setDraft(value);
+    setSecretWarning(false);
     const cursor = textareaRef.current?.selectionStart ?? value.length;
     const beforeCursor = value.slice(0, cursor);
     const match = beforeCursor.match(/(?:^|\s)#([^\s#]*)$/);
@@ -174,10 +241,41 @@ export function FloatingComposer({
     setAttachments((prev) => [...prev, ...nextItems].slice(0, 10));
   };
 
-  const submitDraft = () => {
+  const effectivePrivateMode = lockedPrivateMode || privateMode;
+  const allowPrivatePrefixes = !hidePrivateToggle || lockedPrivateMode;
+  const submission = parseComposerSubmission(draft, effectivePrivateMode, allowPrivatePrefixes);
+  const canSubmit = submission.isPrivate
+    ? submission.question.length > 0
+    : draft.trim().length > 0;
+  const selectedRefCard = refCardId ? cards.find((c) => c.id === refCardId) : undefined;
+
+  const submitDraft = (options?: { redactSecrets?: boolean }) => {
+    const parsed = parseComposerSubmission(draft, effectivePrivateMode, allowPrivatePrefixes);
+    if (parsed.isPrivate) {
+      if (!parsed.question) return;
+      const quote = selectedRefCard
+        ? `引用卡片 ${cardNumbers[selectedRefCard.id] ?? ""} ${selectedRefCard.spec.title}`.trim()
+        : undefined;
+      onAskPrivate({
+        question: parsed.question,
+        ...(quote ? { quote } : {}),
+        ...(model && model !== "Auto" ? { model } : {}),
+      });
+      setDraft("");
+      setRefCardId(null);
+      setHashQuery(null);
+      return;
+    }
+
     if (!draft.trim()) return;
-    onSendMessage(draft, {
-      mentions: [],
+    if (containsRoomSecret(draft) && !options?.redactSecrets) {
+      setSecretWarning(true);
+      return;
+    }
+    setSecretWarning(false);
+    const outgoing = options?.redactSecrets ? redactRoomSecrets(draft) : draft;
+    onSendMessage(outgoing, {
+      mentions: resolveMentions(draft, members),
       refCardId: refCardId ?? undefined,
       meta: {
         model,
@@ -300,9 +398,17 @@ export function FloatingComposer({
     }
   };
 
-  const selectedRefCard = refCardId ? cards.find((c) => c.id === refCardId) : undefined;
   const activePermOption =
     PERMISSION_OPTIONS.find((p) => p.id === permissionMode) ?? PERMISSION_OPTIONS[0];
+  const defaultPlaceholder = submission.isPrivate
+    ? "私下向你的 Agent 提问（仅自己可见 · 不进房间事件流）…"
+    : activeTopicTitle
+      ? `在话题「${activeTopicTitle}」中发送消息…（# 引用卡片，@ 提及成员）`
+      : "向房间成员或 @Agent 发送指令…（# 引用卡片，@ 提及成员，/ask 私下问）";
+  const placeholderText =
+    placeholderOverride && (lockedPrivateMode || !submission.isPrivate)
+      ? placeholderOverride
+      : defaultPlaceholder;
 
   return (
     <div className="relative z-20 w-full px-4 pb-4">
@@ -362,12 +468,44 @@ export function FloatingComposer({
           background: "var(--surface)",
           border: dragOverFiles
             ? "1.5px dashed var(--text)"
-            : "1px solid var(--border-strong)",
+            : submission.isPrivate
+              ? "1px dashed var(--border-strong)"
+              : "1px solid var(--border-strong)",
           borderRadius: "var(--radius-composer)",
           padding: "var(--composer-pad)",
           boxShadow: "var(--shadow-composer)",
         }}
       >
+        {secretWarning && (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-[10px] px-3 py-2 text-[12px] leading-[1.45]"
+            style={{
+              background: "var(--sem-amber-bg)",
+              color: "var(--sem-amber)",
+              border: "1px solid var(--border)",
+            }}
+          >
+            <span className="min-w-0 flex-1">
+              这条消息里有接入凭证（Token）。发到房间后所有成员都能看到并拿它接入 Agent。
+              要给队友接入方式，请让对方自己点「接入 Agent」生成。
+            </span>
+            <span className="flex shrink-0 items-center gap-1.5">
+              <Button type="button" variant="ghost" size="sm" onClick={() => setSecretWarning(false)}>
+                返回修改
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => submitDraft({ redactSecrets: true })}
+              >
+                打码后发送
+              </Button>
+            </span>
+          </div>
+        )}
+
         {/* Top drag handle for vertical resizing */}
         <div
           className={`composer-resize-handle ${draggingComposer ? "dragging" : ""}`}
@@ -455,7 +593,7 @@ export function FloatingComposer({
             isComposingRef.current = false;
           }}
           onKeyDown={handleComposerKeyDown}
-          placeholder="向房间成员或 @Agent 发送指令…（# 引用卡片）"
+          placeholder={placeholderText}
         />
 
         <input
@@ -591,6 +729,54 @@ export function FloatingComposer({
                 })}
               </PopoverContent>
             </Popover>
+
+            {/* Private Side-Ask Lock Indicator or Toggle Pill */}
+            {lockedPrivateMode ? (
+              <span
+                className="inline-flex h-7 items-center gap-1 px-2 text-[12px] font-medium"
+                title="当前频道仅自己可见，不会写入房间事件流"
+                style={{
+                  background: "var(--surface-2)",
+                  color: "var(--text-muted)",
+                  border: "1px dashed var(--border-strong)",
+                  borderRadius: "var(--radius-composer-inner)",
+                }}
+              >
+                <Lock size={12} />
+                <span>仅自己可见</span>
+              </span>
+            ) : (
+              !hidePrivateToggle && (
+                <button
+                  type="button"
+                  aria-pressed={privateMode}
+                  onClick={() => {
+                    setPrivateMode((prev) => !prev);
+                    requestAnimationFrame(() => textareaRef.current?.focus());
+                  }}
+                  title="开启后仅自己可见，不会写入房间事件流（也可用 @我的agent 或 /ask 触发）"
+                  className="inline-flex h-7 items-center gap-1 px-2 text-[12px] font-medium cursor-pointer transition-opacity hover:opacity-85"
+                  style={
+                    privateMode
+                      ? {
+                          background: "var(--primary-bg)",
+                          color: "var(--primary-text)",
+                          border: "1px solid var(--primary-bg)",
+                          borderRadius: "var(--radius-composer-inner)",
+                        }
+                      : {
+                          background: "var(--surface-2)",
+                          color: "var(--text)",
+                          border: "1px solid var(--border)",
+                          borderRadius: "var(--radius-composer-inner)",
+                        }
+                  }
+                >
+                  <Lock size={12} style={privateMode ? undefined : { color: "var(--text-muted)" }} />
+                  <span>私下问 Agent</span>
+                </button>
+              )
+            )}
           </div>
 
           <div className="flex shrink-0 items-center gap-1.5">
@@ -632,8 +818,8 @@ export function FloatingComposer({
 
             <button
               type="submit"
-              disabled={!draft.trim()}
-              aria-label="发送消息"
+              disabled={!canSubmit}
+              aria-label={submission.isPrivate ? "私下提问" : "发送消息"}
               className="flex h-8 w-8 items-center justify-center rounded-full cursor-pointer transition-opacity disabled:opacity-35 disabled:cursor-not-allowed hover:opacity-90"
               style={{
                 background: "var(--primary-bg)",

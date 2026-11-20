@@ -1,6 +1,7 @@
 import React from "react";
 import { Card, Member } from "@coagent/protocol";
 import { OctagonX } from "lucide-react";
+import { buildMemberLabels } from "../../utils/members.js";
 import { Avatar } from "../ui/Avatar.js";
 import { Button } from "../ui/Button.js";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover.js";
@@ -10,6 +11,8 @@ interface AvatarStackProps {
   currentMemberId: string;
   cards: Record<string, Card>;
   onStopAgent: (agentId: string, reason?: string) => void;
+  /** How many avatars to show before collapsing into "+N". */
+  maxVisible?: number;
 }
 
 function getStatusDisplay(m: Member): { color: string; label: string; pulse?: boolean } {
@@ -28,14 +31,19 @@ export function AvatarStack({
   currentMemberId,
   cards,
   onStopAgent,
+  maxVisible = 5,
 }: AvatarStackProps) {
   const sorted = [...members].sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === "human" ? -1 : 1;
+    if ((a.id === currentMemberId) !== (b.id === currentMemberId)) {
+      return a.id === currentMemberId ? -1 : 1;
+    }
     if (a.online !== b.online) return a.online ? -1 : 1;
     return a.name.localeCompare(b.name);
   });
 
-  const visible = sorted.slice(0, 5);
+  const labels = buildMemberLabels(members);
+  const visible = sorted.slice(0, maxVisible);
   const overflow = sorted.length - visible.length;
 
   return (
@@ -53,20 +61,32 @@ export function AvatarStack({
         >
           <span className="flex items-center">
             {visible.map((m, idx) => (
-              <Avatar
+              <span
                 key={m.id}
-                name={m.name}
-                avatar={m.avatar}
-                isAgent={m.kind === "agent"}
-                showAgentBadge
-                size={28}
-                style={{
-                  marginLeft: idx === 0 ? 0 : -6,
-                  border: "2px solid var(--bg)",
-                  opacity: m.online ? 1 : 0.5,
-                  zIndex: visible.length - idx,
-                }}
-              />
+                className="relative inline-flex"
+                style={{ marginLeft: idx === 0 ? 0 : -6, zIndex: visible.length - idx }}
+              >
+                <Avatar
+                  name={m.name}
+                  label={labels[m.id]}
+                  seed={m.id}
+                  avatar={m.avatar}
+                  isAgent={m.kind === "agent"}
+                  showAgentBadge
+                  size={28}
+                  style={{
+                    border: "2px solid var(--bg)",
+                    opacity: m.online ? 1 : 0.45,
+                  }}
+                />
+                {m.online && m.kind === "human" && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute right-0 bottom-0 h-2 w-2 rounded-full"
+                    style={{ background: "var(--sem-green)", border: "1.5px solid var(--bg)" }}
+                  />
+                )}
+              </span>
             ))}
             {overflow > 0 && (
               <span
@@ -106,6 +126,8 @@ export function AvatarStack({
                 <div className="flex min-w-0 items-center gap-2.5">
                   <Avatar
                     name={m.name}
+                    label={labels[m.id]}
+                    seed={m.id}
                     avatar={m.avatar}
                     isAgent={m.kind === "agent"}
                     showAgentBadge
@@ -113,7 +135,7 @@ export function AvatarStack({
                   />
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5 truncate text-[13px] font-medium">
-                      <span className="truncate">{m.name}</span>
+                      <span className="truncate">{labels[m.id] ?? m.name}</span>
                       {m.id === currentMemberId && (
                         <span
                           className="rounded-full px-1.5 py-0 text-[10px] font-medium"

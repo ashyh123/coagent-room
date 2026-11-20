@@ -105,6 +105,14 @@ export function applyRoomEvent(prev: RoomState, event: RoomEvent): RoomState {
       break;
     }
 
+    case "member_online": {
+      const existing = next.members[p.memberId];
+      if (existing) {
+        next.members[p.memberId] = { ...existing, online: true };
+      }
+      break;
+    }
+
     case "message_posted": {
       next.messages = [
         ...prev.messages,

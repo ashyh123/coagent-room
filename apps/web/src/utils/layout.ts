@@ -2,6 +2,8 @@ export type WorkspaceViewMode = "split" | "chat" | "board";
 
 export interface WorkspaceLayout {
   viewMode: WorkspaceViewMode;
+  sidebarWidth: number;
+  sidebarCollapsed: boolean;
   chatWidth: number;
   cardListWidth: number;
   cardListCollapsed: boolean;
@@ -9,6 +11,11 @@ export interface WorkspaceLayout {
 }
 
 export const LAYOUT_STORAGE_KEY = "coagent_room_layout_v1";
+
+export const DEFAULT_SIDEBAR_WIDTH = 228;
+export const MIN_SIDEBAR_WIDTH = 180;
+export const MAX_SIDEBAR_WIDTH = 320;
+export const COLLAPSED_SIDEBAR_WIDTH = 48;
 
 export const DEFAULT_CHAT_WIDTH = 496;
 export const MIN_CHAT_WIDTH = 260;
@@ -26,6 +33,8 @@ export const MAX_COMPOSER_HEIGHT = 480;
 
 export const DEFAULT_LAYOUT: WorkspaceLayout = {
   viewMode: "split",
+  sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
+  sidebarCollapsed: false,
   chatWidth: DEFAULT_CHAT_WIDTH,
   cardListWidth: DEFAULT_CARD_LIST_WIDTH,
   cardListCollapsed: true,
@@ -34,6 +43,22 @@ export const DEFAULT_LAYOUT: WorkspaceLayout = {
 
 function isValidViewMode(value: unknown): value is WorkspaceViewMode {
   return value === "split" || value === "chat" || value === "board";
+}
+
+export function clampSidebarWidth(width: number, containerWidth?: number): number {
+  const safeWidth = Number.isFinite(width) ? width : DEFAULT_SIDEBAR_WIDTH;
+  if (containerWidth !== undefined && Number.isFinite(containerWidth) && containerWidth > 0) {
+    const minAllowed =
+      containerWidth < MIN_SIDEBAR_WIDTH + MIN_CHAT_WIDTH
+        ? Math.floor(containerWidth * 0.35)
+        : MIN_SIDEBAR_WIDTH;
+    const maxAllowed = Math.max(
+      minAllowed,
+      Math.min(MAX_SIDEBAR_WIDTH, containerWidth - MIN_CHAT_WIDTH),
+    );
+    return Math.round(Math.min(maxAllowed, Math.max(minAllowed, safeWidth)));
+  }
+  return Math.round(Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, safeWidth)));
 }
 
 export function clampChatWidth(width: number, containerWidth?: number): number {
@@ -84,6 +109,14 @@ export function sanitizeLayout(raw: unknown): WorkspaceLayout {
   const obj = raw as Record<string, unknown>;
   return {
     viewMode: isValidViewMode(obj.viewMode) ? obj.viewMode : DEFAULT_LAYOUT.viewMode,
+    sidebarWidth:
+      typeof obj.sidebarWidth === "number" && Number.isFinite(obj.sidebarWidth)
+        ? clampSidebarWidth(obj.sidebarWidth)
+        : DEFAULT_LAYOUT.sidebarWidth,
+    sidebarCollapsed:
+      typeof obj.sidebarCollapsed === "boolean"
+        ? obj.sidebarCollapsed
+        : DEFAULT_LAYOUT.sidebarCollapsed,
     chatWidth:
       typeof obj.chatWidth === "number" && Number.isFinite(obj.chatWidth)
         ? clampChatWidth(obj.chatWidth)
@@ -130,4 +163,16 @@ export function saveLayout(
   } catch {
     // ignore storage quota / privacy errors
   }
+}
+
+// Phone-width layout: below Tailwind's `md` breakpoint the workspace becomes a
+// single column (no split view) and the session sidebar becomes a drawer.
+export const COMPACT_MAX_WIDTH = 767;
+
+export function isCompactViewport(width: number): boolean {
+  return width <= COMPACT_MAX_WIDTH;
+}
+
+export function resolveViewMode(mode: WorkspaceViewMode, compact: boolean): WorkspaceViewMode {
+  return compact && mode === "split" ? "chat" : mode;
 }

@@ -111,7 +111,14 @@ export class RoomService {
       throw new RoomError("INVALID_NAME", "Nickname must be 1-64 characters", 400);
     }
 
-    const memberId = randomId("hum", 5);
+    // Rejoining under the same name (lost session, new browser, after 退出) resumes
+    // the offline member instead of leaving a ghost duplicate behind. A same-name
+    // member who is online is treated as a different person.
+    const nameKey = cleanName.toLowerCase();
+    const resumable = Object.values(this.state.members).find(
+      (m) => m.kind === "human" && !m.online && m.name.trim().toLowerCase() === nameKey,
+    );
+    const memberId = resumable?.id ?? randomId("hum", 5);
     const sessionToken = randomId("sess", 16);
     this.db.saveSession({
       token: sessionToken,
@@ -120,6 +127,18 @@ export class RoomService {
       kind: "human",
       createdAt: new Date().toISOString(),
     });
+
+    if (resumable) {
+      if (avatar) {
+        this.emit(memberId, {
+          type: "member_joined",
+          member: { ...resumable, avatar, online: true },
+        });
+      } else {
+        this.emit(memberId, { type: "member_online", memberId });
+      }
+      return { memberId, sessionToken };
+    }
 
     this.emit(memberId, {
       type: "member_joined",
@@ -187,6 +206,13 @@ export class RoomService {
     });
 
     return { agentId, agentSessionToken, ownerId: invite.ownerId };
+  }
+
+  markMemberOnline(memberId: string): void {
+    const m = this.state.members[memberId];
+    if (m && !m.online) {
+      this.emit(memberId, { type: "member_online", memberId });
+    }
   }
 
   markMemberOffline(memberId: string): void {

@@ -28,6 +28,12 @@ export const EventPayloadSchema = z.discriminatedUnion("type", [
     type: z.literal("member_left"),
     memberId: z.string().min(1),
   }),
+  // Presence only: a known member reconnected (WS reopen or rejoin by name).
+  // Unlike member_joined it never replaces the member or clears an agent stop.
+  z.object({
+    type: z.literal("member_online"),
+    memberId: z.string().min(1),
+  }),
   z.object({
     type: z.literal("message_posted"),
     messageId: z.string().min(1),

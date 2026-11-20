@@ -625,6 +625,8 @@ describe("coagent-room server (v0.1 integration)", () => {
     const topicEvt = server.service.createTopic(lin.memberId, "Private Context Topic");
     const topicId = topicEvt.payload.type === "topic_created" ? topicEvt.payload.topicId : "";
     server.service.postMessage(lin.memberId, "Discussing private ask contract", [], cardId, undefined, topicId);
+    const leakedToken = "inv_0123456789abcdef01234567";
+    server.service.postMessage(lin.memberId, `npx coagent join --token ${leakedToken}`, [], undefined, undefined, topicId);
 
     // Connect another client (Alex) via WS and record all frames
     const wsAlex = new WebSocket(`${server.url.replace("http", "ws")}/ws?token=${alex.sessionToken}`);
@@ -676,6 +678,10 @@ describe("coagent-room server (v0.1 integration)", () => {
       expect(privJson.source).toBe("local_context");
       expect(privJson.answer).toContain("Private Ask Spec");
       expect(privJson.answer).toContain("Verify zero side effects");
+      // The answer is shown in a private bubble and may be shared to the room:
+      // it must not carry a visibility label or echo room credentials.
+      expect(privJson.answer).not.toContain("可见");
+      expect(privJson.answer).not.toContain(leakedToken);
     } finally {
       if (prevUrl !== undefined) process.env.COAGENT_LLM_BASE_URL = prevUrl;
     }
@@ -687,8 +693,12 @@ describe("coagent-room server (v0.1 integration)", () => {
 
     // 2. Local mock LLM endpoint + fallback on 500
     let failMode = false;
-    const mockLlm = http.createServer((req, res) => {
+    const llmBodies: string[] = [];
+    const mockLlm = http.createServer(async (req, res) => {
       if (req.url === "/v1/chat/completions" && req.method === "POST") {
+        let body = "";
+        for await (const chunk of req) body += chunk;
+        llmBodies.push(body);
         if (failMode) {
           res.writeHead(500);
           res.end("err");
@@ -726,6 +736,8 @@ describe("coagent-room server (v0.1 integration)", () => {
         source: "llm",
         model: "test-llm",
       });
+      expect(llmBodies.at(-1)).toContain("inv_0123");
+      expect(llmBodies.at(-1)).not.toContain(leakedToken);
 
       failMode = true;
       const llmFallback = await (

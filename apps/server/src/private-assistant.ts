@@ -1,4 +1,4 @@
-import { Card, CardStatus, getActiveClaims, RoomState } from "@coagent/protocol";
+import { Card, CardStatus, getActiveClaims, redactRoomSecrets, RoomState } from "@coagent/protocol";
 import { z } from "zod";
 
 export const PrivateAskInputSchema = z.object({
@@ -24,8 +24,10 @@ const CARD_STATUS_ZH: Record<CardStatus, string> = {
   accepted: "已验收",
 };
 
+// Every room-derived string passes through here, so credentials pasted into chat
+// never reach the private answer or the external LLM.
 function truncate(text: string, maxLen: number): string {
-  const clean = text.replace(/\s+/g, " ").trim();
+  const clean = redactRoomSecrets(text).replace(/\s+/g, " ").trim();
   if (clean.length <= maxLen) return clean;
   return `${clean.slice(0, maxLen - 1)}…`;
 }
@@ -139,7 +141,6 @@ function buildLocalContextAnswer(
   input: PrivateAskInput,
 ): string {
   const sections: string[] = [];
-  const requester = state.members[memberId];
   const activeCard = input.activeCardId ? state.cards[input.activeCardId] : undefined;
   const activeTopic = input.topicId ? state.topics[input.topicId] : undefined;
   const claims = getActiveClaims(state);
@@ -156,9 +157,9 @@ function buildLocalContextAnswer(
   if (activeCard) scopeParts.push(`卡片「${activeCard.spec.title}」`);
   const scopeLabel = scopeParts.length > 0 ? scopeParts.join(" / ") : `房间「${state.roomName}」`;
 
-  sections.push(
-    `[私密上下文分析 · 仅${requester?.name ?? "你"}可见] 针对你在${scopeLabel}的提问：「${truncate(input.question, 100)}」`,
-  );
+  // No visibility label here: the UI already marks the private bubble, and the
+  // answer may later be shared to the room, where such a label would be false.
+  sections.push(`针对你在${scopeLabel}的提问：「${truncate(input.question, 100)}」`);
 
   if (input.quote) {
     sections.push(`引用片段：「${truncate(input.quote, 220)}」`);
@@ -189,17 +190,6 @@ function buildLocalContextAnswer(
       return `- [${o.kind}] ${truncate(o.summary, 120)}（提交者：${submitter}）`;
     });
     sections.push(`产出摘要：\n${outLines.join("\n")}`);
-  }
-
-  const scopedMessages = (
-    input.topicId ? state.messages.filter((m) => m.topicId === input.topicId) : state.messages
-  ).slice(-5);
-  if (scopedMessages.length > 0) {
-    const msgLines = scopedMessages.map((m) => {
-      const sender = state.members[m.actorId]?.name ?? m.actorId;
-      return `- ${sender}：${truncate(m.text, 100)}`;
-    });
-    sections.push(`近期对话（${scopedMessages.length} 条）：\n${msgLines.join("\n")}`);
   }
 
   const nextHints: string[] = [];
@@ -266,7 +256,7 @@ export async function answerPrivateQuestion(
             },
             {
               role: "user",
-              content: `【房间上下文】\n${contextSummary}\n\n【我的私密问题】\n${input.question}`,
+              content: `【房间上下文】\n${contextSummary}\n\n【我的私密问题】\n${redactRoomSecrets(input.question)}`,
             },
           ],
         }),

@@ -44,6 +44,10 @@ function hashName(name: string): number {
 
 interface AvatarProps {
   name: string;
+  /** Stable key for the initials tone (pass the member id so same-name members differ). */
+  seed?: string;
+  /** Tooltip text; defaults to name. Pass the disambiguated label here, not as name. */
+  label?: string;
   avatar?: MemberAvatar;
   isAgent?: boolean;
   showAgentBadge?: boolean;
@@ -54,6 +58,8 @@ interface AvatarProps {
 
 export function Avatar({
   name,
+  seed,
+  label,
   avatar,
   isAgent = false,
   showAgentBadge = false,
@@ -109,7 +115,7 @@ export function Avatar({
     const bg =
       avatar?.kind === "initials" && /^#[0-9a-fA-F]{3,8}$/.test(avatar.value)
         ? avatar.value
-        : INITIALS_TONES[hashName(name) % INITIALS_TONES.length];
+        : INITIALS_TONES[hashName(seed ?? name) % INITIALS_TONES.length];
 
     return (
       <span
@@ -134,7 +140,7 @@ export function Avatar({
         border: "1px solid var(--border)",
         ...style,
       }}
-      title={name}
+      title={label ?? name}
     >
       {renderInner()}
       {showAgentBadge && isAgent && (

@@ -356,6 +356,7 @@ export async function createRoomServer(options: RoomServerOptions = {}): Promise
       kind: session.kind,
     };
     sockets.add(client);
+    service.markMemberOnline(session.memberId);
 
     ws.on("message", (raw) => {
       try {

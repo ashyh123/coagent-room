@@ -1,3 +1,4 @@
+import { redactRoomSecrets } from "./secrets.js";
 import { RoomState } from "./reducer.js";
 
 export type InboxItemKind = "confirm_card" | "review_output" | "mention" | "agent_help";
@@ -88,7 +89,7 @@ export function computeInboxItems(
       id: `mention:${msg.id}`,
       kind: "mention",
       title: `${actorName} @了你`,
-      summary: msg.text.trim().slice(0, 140),
+      summary: redactRoomSecrets(msg.text.trim()).slice(0, 140),
       createdAt: msg.createdAt,
       targetType: "message",
       targetId: msg.id,

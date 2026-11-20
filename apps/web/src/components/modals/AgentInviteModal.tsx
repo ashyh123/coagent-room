@@ -18,12 +18,14 @@ interface AgentInviteModalProps {
 
 export function AgentInviteModal({ open, sessionToken, onClose }: AgentInviteModalProps) {
   const [inviteToken, setInviteToken] = useState<string | null>(null);
+  const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setInviteToken(null);
+    setExpiresAt(null);
     setError(null);
     fetch("/api/agent-invite", {
       method: "POST",
@@ -33,6 +35,7 @@ export function AgentInviteModal({ open, sessionToken, onClose }: AgentInviteMod
       .then((data) => {
         if (data.inviteToken) {
           setInviteToken(data.inviteToken);
+          setExpiresAt(typeof data.expiresAt === "string" ? data.expiresAt : null);
         } else {
           setError(data.message ?? "生成邀请 Token 失败");
         }
@@ -44,6 +47,10 @@ export function AgentInviteModal({ open, sessionToken, onClose }: AgentInviteMod
   const cmd = inviteToken
     ? `npx coagent join ${roomUrl} --token ${inviteToken} --agent codex`
     : "正在生成一次性 Token...";
+
+  const expiryLabel = expiresAt
+    ? new Date(expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : null;
 
   const handleCopy = async () => {
     if (!inviteToken) return;
@@ -90,6 +97,14 @@ export function AgentInviteModal({ open, sessionToken, onClose }: AgentInviteMod
         >
           {cmd}
         </div>
+
+        {inviteToken && (
+          <p className="mt-2 text-[12px] leading-[1.5]" style={{ color: "var(--text-muted)" }}>
+            这条命令里的 Token 只能用一次
+            {expiryLabel ? `，${expiryLabel} 前有效` : "，30 分钟内有效"}
+            。它等同于房间的接入凭证，请只在自己的终端里运行，不要发到房间里。每次打开本窗口都会生成新的 Token，之前没用过的 Token 到期后自动作废。
+          </p>
+        )}
 
         <DialogFooter>
           <Button type="button" variant="outline" size="md" onClick={onClose}>
