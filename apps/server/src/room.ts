@@ -8,6 +8,8 @@ import {
   computeCardVersionHash,
   EventPayload,
   getActiveClaims,
+  MemberAvatar,
+  MessageMeta,
   OutputKind,
   reduceRoomEvents,
   RoomEvent,
@@ -94,7 +96,11 @@ export class RoomService {
     return event;
   }
 
-  joinHuman(passcode: string, nickname: string): { memberId: string; sessionToken: string } {
+  joinHuman(
+    passcode: string,
+    nickname: string,
+    avatar?: MemberAvatar,
+  ): { memberId: string; sessionToken: string } {
     if (passcode.trim() !== this.room.passcode) {
       throw new RoomError("INVALID_PASSCODE", "Invalid room passcode", 401);
     }
@@ -120,6 +126,7 @@ export class RoomService {
         name: cleanName,
         kind: "human",
         online: true,
+        ...(avatar ? { avatar } : {}),
       },
     });
 
@@ -187,7 +194,13 @@ export class RoomService {
     }
   }
 
-  postMessage(actorId: string, text: string, mentions: string[] = [], refCardId?: string): RoomEvent {
+  postMessage(
+    actorId: string,
+    text: string,
+    mentions: string[] = [],
+    refCardId?: string,
+    meta?: MessageMeta,
+  ): RoomEvent {
     const member = this.state.members[actorId];
     if (!member) {
       throw new RoomError("UNAUTHORIZED", "Unknown room member", 401);
@@ -205,6 +218,7 @@ export class RoomService {
       text: trimmed,
       mentions,
       refCardId,
+      ...(meta ? { meta } : {}),
     });
   }
 

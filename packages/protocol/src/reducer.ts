@@ -1,5 +1,5 @@
 import { Card } from "./cards.js";
-import { RoomEvent } from "./events.js";
+import { MessageMeta, RoomEvent } from "./events.js";
 import { ActiveClaim } from "./locks.js";
 import { Member, Output, WorkStep } from "./types.js";
 
@@ -9,6 +9,7 @@ export interface ChatMessage {
   text: string;
   mentions: string[];
   refCardId?: string;
+  meta?: MessageMeta;
   createdAt: string;
   seq: number;
 }
@@ -109,6 +110,7 @@ export function applyRoomEvent(prev: RoomState, event: RoomEvent): RoomState {
           text: p.text,
           mentions: p.mentions,
           refCardId: p.refCardId,
+          meta: p.meta,
           createdAt: event.createdAt,
           seq: event.seq,
         },

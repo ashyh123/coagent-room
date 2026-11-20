@@ -3,6 +3,7 @@ import {
   applyRoomEvent,
   CardSpec,
   createInitialRoomState,
+  MessageMeta,
   reduceRoomEvents,
   RoomEvent,
   RoomState,
@@ -142,7 +143,17 @@ export function useRoom(session: SessionInfo | null) {
     events,
     connected,
     lastError,
-    postMessage: (text: string) => send({ type: "post_message", text, mentions: [] }),
+    postMessage: (
+      text: string,
+      options?: { mentions?: string[]; refCardId?: string; meta?: MessageMeta },
+    ) =>
+      send({
+        type: "post_message",
+        text,
+        mentions: options?.mentions ?? [],
+        refCardId: options?.refCardId,
+        meta: options?.meta,
+      }),
     createCard: (spec: CardSpec) => send({ type: "create_card", spec }),
     updateCard: (cardId: string, spec: CardSpec) => send({ type: "update_card", cardId, spec }),
     confirmCard: (cardId: string, versionHash: string) =>

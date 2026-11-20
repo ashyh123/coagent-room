@@ -4,6 +4,7 @@ import path from "node:path";
 import { AddressInfo } from "node:net";
 import { WebSocket, WebSocketServer } from "ws";
 import {
+  AvatarSchema,
   RoomAskHumanInputSchema,
   RoomCheckFilesInputSchema,
   RoomClaimCardInputSchema,
@@ -153,7 +154,8 @@ export async function createRoomServer(options: RoomServerOptions = {}): Promise
 
       if (req.method === "POST" && pathname === "/api/join") {
         const body = await readJsonBody(req);
-        const result = service.joinHuman(String(body.passcode ?? ""), String(body.nickname ?? ""));
+        const avatar = body.avatar === undefined ? undefined : AvatarSchema.parse(body.avatar);
+        const result = service.joinHuman(String(body.passcode ?? ""), String(body.nickname ?? ""), avatar);
         sendJson(res, 200, {
           ...result,
           roomId: service.room.id,
@@ -332,7 +334,13 @@ export async function createRoomServer(options: RoomServerOptions = {}): Promise
             break;
           }
           case "post_message": {
-            service.postMessage(session.memberId, parsed.text, parsed.mentions, parsed.refCardId);
+            service.postMessage(
+              session.memberId,
+              parsed.text,
+              parsed.mentions,
+              parsed.refCardId,
+              parsed.meta,
+            );
             break;
           }
           case "create_card": {

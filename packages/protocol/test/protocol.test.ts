@@ -8,10 +8,13 @@ import {
   globsMayOverlap,
   matchesGlob,
   MCP_TOOL_NAMES,
+  MemberSchema,
+  reduceRoomEvents,
   RoomClaimCardInputSchema,
   RoomEventSchema,
   RoomReportStepInputSchema,
   sha256Hex,
+  WsClientMessageSchema,
 } from "../src/index.js";
 
 describe("sha256Hex (cross-environment pure JS)", () => {
@@ -185,5 +188,83 @@ describe("MCP tool & Event schemas", () => {
       },
     });
     expect(eventRes.success).toBe(true);
+  });
+
+  it("supports optional member avatar and message meta while preserving backward compatibility", () => {
+    expect(
+      MemberSchema.safeParse({
+        id: "hum_1",
+        name: "Lin",
+        kind: "human",
+        online: true,
+      }).success,
+    ).toBe(true);
+
+    const avatar = { kind: "preset" as const, value: "sparkles" };
+    expect(
+      MemberSchema.safeParse({
+        id: "hum_2",
+        name: "Evan",
+        kind: "human",
+        online: true,
+        avatar,
+      }).success,
+    ).toBe(true);
+
+    const meta = {
+      model: "Claude 4.5",
+      permissionMode: "ask" as const,
+      attachments: [{ name: "guard.ts", size: 1024 }],
+    };
+
+    expect(
+      WsClientMessageSchema.safeParse({
+        type: "post_message",
+        text: "Check guard.ts",
+        mentions: [],
+        refCardId: "card_1",
+        meta,
+      }).success,
+    ).toBe(true);
+
+    expect(
+      WsClientMessageSchema.safeParse({
+        type: "post_message",
+        text: "Legacy message without meta",
+      }).success,
+    ).toBe(true);
+
+    const state = reduceRoomEvents("room_1", "Demo", [
+      {
+        seq: 1,
+        id: "evt_1",
+        roomId: "room_1",
+        actorId: "hum_2",
+        createdAt: "2026-11-20T12:00:00.000Z",
+        payload: {
+          type: "member_joined",
+          member: { id: "hum_2", name: "Evan", kind: "human", online: true, avatar },
+        },
+      },
+      {
+        seq: 2,
+        id: "evt_2",
+        roomId: "room_1",
+        actorId: "hum_2",
+        createdAt: "2026-11-20T12:01:00.000Z",
+        payload: {
+          type: "message_posted",
+          messageId: "msg_1",
+          text: "Review this",
+          mentions: [],
+          refCardId: "card_1",
+          meta,
+        },
+      },
+    ]);
+
+    expect(state.members.hum_2.avatar).toEqual(avatar);
+    expect(state.messages[0].meta).toEqual(meta);
+    expect(state.messages[0].refCardId).toBe("card_1");
   });
 });

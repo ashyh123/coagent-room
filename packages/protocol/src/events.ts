@@ -2,6 +2,23 @@ import { z } from "zod";
 import { CardSpecSchema } from "./cards.js";
 import { MemberSchema, OutputKindSchema } from "./types.js";
 
+export const PermissionModeSchema = z.enum(["ask", "auto", "plan"]);
+export type PermissionMode = z.infer<typeof PermissionModeSchema>;
+
+export const MessageAttachmentSchema = z.object({
+  name: z.string().min(1).max(200),
+  size: z.number().int().nonnegative(),
+  ref: z.string().max(500).optional(),
+});
+export type MessageAttachment = z.infer<typeof MessageAttachmentSchema>;
+
+export const MessageMetaSchema = z.object({
+  model: z.string().min(1).max(80).optional(),
+  permissionMode: PermissionModeSchema.optional(),
+  attachments: z.array(MessageAttachmentSchema).max(10).optional(),
+});
+export type MessageMeta = z.infer<typeof MessageMetaSchema>;
+
 export const EventPayloadSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("member_joined"),
@@ -17,6 +34,7 @@ export const EventPayloadSchema = z.discriminatedUnion("type", [
     text: z.string().min(1).max(4000),
     mentions: z.array(z.string()).default([]),
     refCardId: z.string().optional(),
+    meta: MessageMetaSchema.optional(),
   }),
   z.object({
     type: z.literal("card_created"),
@@ -105,6 +123,7 @@ export const WsClientMessageSchema = z.discriminatedUnion("type", [
     text: z.string().min(1).max(4000),
     mentions: z.array(z.string()).default([]),
     refCardId: z.string().optional(),
+    meta: MessageMetaSchema.optional(),
   }),
   z.object({
     type: z.literal("create_card"),

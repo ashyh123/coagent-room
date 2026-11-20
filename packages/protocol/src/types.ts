@@ -8,6 +8,15 @@ export type MemberKind = z.infer<typeof MemberKindSchema>;
 export const AgentStatusSchema = z.enum(["idle", "working", "waiting_human", "stopped"]);
 export type AgentStatus = z.infer<typeof AgentStatusSchema>;
 
+export const AvatarKindSchema = z.enum(["initials", "preset", "image"]);
+export type AvatarKind = z.infer<typeof AvatarKindSchema>;
+
+export const AvatarSchema = z.object({
+  kind: AvatarKindSchema,
+  value: z.string().min(1).max(120_000),
+});
+export type MemberAvatar = z.infer<typeof AvatarSchema>;
+
 export const MemberSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1).max(64),
@@ -17,6 +26,7 @@ export const MemberSchema = z.object({
   online: z.boolean(),
   status: AgentStatusSchema.optional(),
   activeCardId: z.string().optional(),
+  avatar: AvatarSchema.optional(),
 });
 export type Member = z.infer<typeof MemberSchema>;
 

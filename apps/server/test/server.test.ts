@@ -309,4 +309,57 @@ describe("coagent-room server (v0.1 integration)", () => {
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
+
+  it("persists and broadcasts optional member avatar and message metadata", async () => {
+    const server = await createRoomServer({
+      port: 0,
+      dbPath: ":memory:",
+      roomName: "Meta Room",
+      passcode: "meta42",
+    });
+    runningServers.push(server);
+
+    const avatar = { kind: "preset", value: "terminal" };
+    const lin = await (
+      await fetch(`${server.url}/api/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ passcode: "meta42", nickname: "Lin", avatar }),
+      })
+    ).json();
+
+    const wsLin = new WebSocket(`${server.url.replace("http", "ws")}/ws?token=${lin.sessionToken}`);
+    await new Promise<void>((r) => wsLin.once("open", () => r()));
+
+    const msgPromise = waitForMessage(
+      wsLin,
+      (m) => m.type === "event" && m.event.payload.type === "message_posted",
+    );
+    wsLin.send(
+      JSON.stringify({
+        type: "post_message",
+        text: "Check auth refactor",
+        mentions: [],
+        refCardId: "card_04",
+        meta: {
+          model: "Claude 4.5",
+          permissionMode: "ask",
+          attachments: [{ name: "guard.ts", size: 512 }],
+        },
+      }),
+    );
+    const evtMsg = await msgPromise;
+    expect(evtMsg.event.payload.refCardId).toBe("card_04");
+    expect(evtMsg.event.payload.meta).toEqual({
+      model: "Claude 4.5",
+      permissionMode: "ask",
+      attachments: [{ name: "guard.ts", size: 512 }],
+    });
+
+    const state = server.service.getState();
+    expect(state.members[lin.memberId].avatar).toEqual(avatar);
+    expect(state.messages[0].meta?.model).toBe("Claude 4.5");
+
+    wsLin.close();
+  });
 });

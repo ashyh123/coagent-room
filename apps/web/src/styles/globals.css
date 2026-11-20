@@ -1,0 +1,193 @@
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: var(--lh-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font-family: inherit;
+    color: inherit;
+  }
+
+  button:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--border-strong);
+    outline-offset: 2px;
+  }
+
+  code,
+  pre {
+    font-family: var(--font-mono);
+  }
+}
+
+/* Thin neutral scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Vertical splitter between panes */
+.split-handle-x {
+  width: 8px;
+  flex: 0 0 8px;
+  cursor: col-resize;
+  position: relative;
+  background: transparent;
+  touch-action: none;
+  user-select: none;
+  outline: none;
+}
+
+.split-handle-x::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--border);
+  transition: background 0.15s;
+}
+
+.split-handle-x::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 32px;
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+  background: transparent;
+  transition: background 0.15s, height 0.15s;
+}
+
+.split-handle-x:hover::before,
+.split-handle-x:focus-visible::before,
+.split-handle-x.dragging::before {
+  background: var(--border-strong);
+}
+
+.split-handle-x:hover::after,
+.split-handle-x:focus-visible::after,
+.split-handle-x.dragging::after {
+  background: var(--text);
+  height: 48px;
+}
+
+/* Horizontal resize handle atop floating composer */
+.composer-resize-handle {
+  position: relative;
+  height: 12px;
+  margin-top: -4px;
+  cursor: ns-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  user-select: none;
+  outline: none;
+}
+
+.composer-resize-grip {
+  width: 32px;
+  height: 3px;
+  border-radius: 9999px;
+  background: var(--border-strong);
+  opacity: 0.7;
+  transition: background 0.15s, width 0.15s, opacity 0.15s;
+}
+
+.composer-resize-handle:hover .composer-resize-grip,
+.composer-resize-handle:focus-visible .composer-resize-grip,
+.composer-resize-handle.dragging .composer-resize-grip {
+  background: var(--text);
+  width: 48px;
+  opacity: 1;
+}
+
+.composer-input {
+  resize: none;
+  min-height: 44px;
+  line-height: 1.5;
+  overflow-y: hidden;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--text-body);
+  width: 100%;
+  padding: 4px 6px;
+}
+
+.composer-input:focus,
+.composer-input:focus-visible {
+  outline: none;
+}
+
+.composer-input::placeholder {
+  color: var(--text-muted);
+}
+
+/* Bottom gradient fade above floating composer */
+.chat-fade-mask {
+  background: linear-gradient(to bottom, transparent 0%, var(--bg) 82%);
+  pointer-events: none;
+}
+
+/* Diff line highlights (neutral + subtle semantic green/red) */
+.diff-line {
+  display: grid;
+  grid-template-columns: 38px 38px minmax(0, 1fr);
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+  line-height: var(--lh-mono);
+}
+
+.diff-line.add {
+  background: var(--sem-green-bg);
+}
+
+.diff-line.del {
+  background: var(--sem-red-bg);
+}
+
+.diff-line.hunk {
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
